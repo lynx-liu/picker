@@ -1,13 +1,16 @@
 package com.vrviu.picker;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
+import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -15,6 +18,8 @@ import android.os.Handler;
 import android.os.Message;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.widget.Toast;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
@@ -86,37 +91,57 @@ public class PickerActivity extends Activity implements Handler.Callback {
         super.onDestroy();
     }
 
-    void setResult(Uri uri) {
-        try {
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            if (openInputStream != null) {
-                ContentValues contentValues = new ContentValues();
-                contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, uri.getLastPathSegment());
-                contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/*");
-                Uri insert = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
-                if (insert != null) {
-                    int read;
-                    byte[] buffer = new byte[4096];
-                    OutputStream openOutputStream = getContentResolver().openOutputStream(insert);
-                    while ((read = openInputStream.read(buffer))>0) {
-                        openOutputStream.write(buffer, 0, read);
-                    }
-                    openOutputStream.close();
+    private Uri queryUri(Uri uri) {
+        Uri existingUri = null;
+        String[] projection = { MediaStore.MediaColumns._ID };
+        String selection = MediaStore.MediaColumns.DISPLAY_NAME + "=?";
+        String[] selectionArgs = { uri.getLastPathSegment() };
+        Cursor cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, null);
 
-                    Intent intent = new Intent();
-                    intent.setDataAndType(insert, "image/*");
-                    setResult(RESULT_OK, intent);
-                } else {
-                    setResult(RESULT_CANCELED);
-                }
-                openInputStream.close();
-            } else {
-                setResult(RESULT_CANCELED);
+        if (cursor != null) {
+            if(cursor.moveToFirst()) {
+                @SuppressLint("Range") long existingId = cursor.getLong(cursor.getColumnIndex(MediaStore.MediaColumns._ID));
+                existingUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, existingId);
             }
+            cursor.close();
+        }
+        return existingUri;
+    }
+
+    boolean setResult(Uri uri) {
+        Uri resultUri = queryUri(uri);
+        if(resultUri==null) {
+            ContentValues contentValues = new ContentValues();
+            contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, uri.getLastPathSegment());
+            contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/*");
+            resultUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+        }
+
+        if(resultUri==null) {
+            setResult(RESULT_CANCELED);
+            return false;
+        }
+
+        try {
+            int read;
+            byte[] buffer = new byte[4096];
+            InputStream openInputStream = getContentResolver().openInputStream(uri);
+            OutputStream openOutputStream = getContentResolver().openOutputStream(resultUri);
+            while ((read = openInputStream.read(buffer)) > 0) {
+                openOutputStream.write(buffer, 0, read);
+            }
+            openOutputStream.close();
+            openInputStream.close();
+
+            Intent intent = new Intent();
+            intent.setDataAndType(resultUri, "image/*");
+            setResult(RESULT_OK, intent);
+            return true;
         } catch (Exception e) {
-            Log.d("llx", e.toString());
+            Toast.makeText(getApplicationContext(),e.toString(),Toast.LENGTH_LONG).show();
             setResult(RESULT_CANCELED);
         }
+        return false;
     }
 
     void setResult(String str) {
