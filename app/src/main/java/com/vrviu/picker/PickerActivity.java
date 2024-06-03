@@ -60,12 +60,14 @@ public class PickerActivity extends Activity implements Handler.Callback {
             }
         }
 
-        if (getIntent().getExtras() != null) {
+        Intent intent = getIntent();
+        String action = intent.getAction();
+        if (action==null || action.equals(Intent.ACTION_MAIN)) {
+            finish();
+        } else {
             handler = new Handler(this);
             handler.sendEmptyMessageDelayed(MSG_TIMEOUT, TIMEOUT);
-            return;
         }
-        finish();
     }
 
     @Override
@@ -123,15 +125,17 @@ public class PickerActivity extends Activity implements Handler.Callback {
         }
 
         try {
-            int read;
-            byte[] buffer = new byte[4096];
-            InputStream openInputStream = getContentResolver().openInputStream(uri);
-            OutputStream openOutputStream = getContentResolver().openOutputStream(resultUri);
-            while ((read = openInputStream.read(buffer)) > 0) {
-                openOutputStream.write(buffer, 0, read);
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {//Android13需要把内容复制过去
+                int read;
+                byte[] buffer = new byte[4096];
+                InputStream openInputStream = getContentResolver().openInputStream(uri);
+                OutputStream openOutputStream = getContentResolver().openOutputStream(resultUri);
+                while ((read = openInputStream.read(buffer)) > 0) {
+                    openOutputStream.write(buffer, 0, read);
+                }
+                openOutputStream.close();
+                openInputStream.close();
             }
-            openOutputStream.close();
-            openInputStream.close();
 
             Intent intent = new Intent();
             intent.setDataAndType(resultUri, "image/*");
