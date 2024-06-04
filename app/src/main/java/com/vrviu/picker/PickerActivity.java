@@ -29,6 +29,7 @@ public class PickerActivity extends Activity implements Handler.Callback {
     private static final int MSG_REFRESH = 1;
     private static final int MSG_TIMEOUT = 0;
     private static final int TIMEOUT = 120000;
+    private static final int DELAY = 1000;
     private Handler handler = null;
     private BroadcastReceiver mediaScannerReceiver = new BroadcastReceiver() {
         @Override
@@ -38,7 +39,7 @@ public class PickerActivity extends Activity implements Handler.Callback {
                 Message obtain = Message.obtain();
                 obtain.what = MSG_REFRESH;
                 obtain.obj = data;
-                handler.sendMessage(obtain);
+                handler.sendMessageDelayed(obtain,DELAY);
             }
         }
     };
@@ -110,13 +111,33 @@ public class PickerActivity extends Activity implements Handler.Callback {
         return existingUri;
     }
 
+    private Uri insertUri(Uri uri) {
+        int read = 0;
+        byte[] buffer = new byte[4096];
+
+        ContentValues contentValues = new ContentValues();
+        contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, uri.getLastPathSegment());
+        contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/*");
+        Uri insertUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+
+        try {
+            InputStream openInputStream = getContentResolver().openInputStream(uri);
+            OutputStream openOutputStream = getContentResolver().openOutputStream(insertUri);
+            while ((read = openInputStream.read(buffer)) > 0) {
+                openOutputStream.write(buffer, 0, read);
+            }
+            openOutputStream.close();
+            openInputStream.close();
+        } catch (Exception e) {
+            Toast.makeText(getApplicationContext(),e.toString(),Toast.LENGTH_LONG).show();
+        }
+        return insertUri;
+    }
+
     boolean setResult(Uri uri) {
         Uri resultUri = queryUri(uri);
-        if(resultUri==null) {
-            ContentValues contentValues = new ContentValues();
-            contentValues.put(MediaStore.MediaColumns.DISPLAY_NAME, uri.getLastPathSegment());
-            contentValues.put(MediaStore.MediaColumns.MIME_TYPE, "image/*");
-            resultUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues);
+        if(resultUri==null && Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {//Android11开始MEDIA_SCANNER_SCAN_FILE被废弃,需要手动向MediaStore插入记录
+            resultUri = insertUri(uri);
         }
 
         if(resultUri==null) {
@@ -125,18 +146,6 @@ public class PickerActivity extends Activity implements Handler.Callback {
         }
 
         try {
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.Q) {//Android13需要把内容复制过去
-                int read;
-                byte[] buffer = new byte[4096];
-                InputStream openInputStream = getContentResolver().openInputStream(uri);
-                OutputStream openOutputStream = getContentResolver().openOutputStream(resultUri);
-                while ((read = openInputStream.read(buffer)) > 0) {
-                    openOutputStream.write(buffer, 0, read);
-                }
-                openOutputStream.close();
-                openInputStream.close();
-            }
-
             Intent intent = new Intent();
             intent.setDataAndType(resultUri, "image/*");
             setResult(RESULT_OK, intent);
